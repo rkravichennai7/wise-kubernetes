@@ -51,11 +51,9 @@ jobs:
       - uses: actions/checkout@v4
 
       # If kubectl isn't on this runner yet, uncomment ONE of the installers below
-
-      - name: Install kubectl via choco
-        shell: powershell
-        run: choco install kubernetes-cli -y
-
+      - name: install-kubectl
+        uses: cuzfrog/install-kubectl@master
+        
       - name: Verify kubectl presence
         shell: powershell
         run: |
