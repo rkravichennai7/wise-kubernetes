@@ -46,29 +46,30 @@ jobs:
 
   deploy:
     needs: build-and-push
-    if: github.ref == 'refs/heads/main'
-    runs-on: ubuntu-latest
+    runs-on: [self-hosted, windows, minikube]   # <- match your runner labels
     steps:
-      - name: Checkout
-        uses: actions/checkout@v4
+      - uses: actions/checkout@v4
 
       - name: Setup kubectl
+          # On Windows runner, kubectl may already be installed; keep this if not.
         uses: azure/setup-kubectl@v4
         with:
           version: latest
 
-      - name: Configure kubeconfig
+      - name: Configure kubeconfig (from secret)
+        shell: pwsh
         run: |
-          echo "${KUBECONFIG_B64}" | base64 -d > kubeconfig
-          chmod 600 kubeconfig
+          $b64 = "${env:KUBECONFIG_B64}"
+          [IO.File]::WriteAllBytes("$env:RUNNER_TEMP\kubeconfig", [Convert]::FromBase64String($b64))
         env:
           KUBECONFIG_B64: ${{ secrets.KUBECONFIG_B64 }}
 
       - name: Deploy manifests
+        shell: pwsh
         env:
-          KUBECONFIG: ${{ github.workspace }}/kubeconfig
+          KUBECONFIG: ${{ env:RUNNER_TEMP }}\kubeconfig
         run: |
-          kubectl apply -f k8s/cert-issuer.yaml || true
+          kubectl apply -f k8s/cert-issuer.yaml || exit 0
           kubectl apply -f k8s/deployment.yaml
           kubectl apply -f k8s/service.yaml
           kubectl apply -f k8s/ingress.yaml
