@@ -46,71 +46,50 @@ jobs:
 
   deploy:
     needs: build-and-push
-    runs-on: [self-hosted, windows, minikube]
-
+    runs-on: [self-hosted, windows, minikube]   # <-- use the exact labels you gave your runner
     steps:
       - uses: actions/checkout@v4
 
-      - name: Setup kubectl
-        uses: azure/setup-kubectl@v4
-        with:
-          version: latest
+      # If kubectl isn't on this runner yet, uncomment ONE of the installers below
+      # - name: Install kubectl via winget
+      #   shell: powershell
+      #   run: winget install -e --id Kubernetes.kubectl --source winget
 
-      - name: Configure kubeconfig (from secret)
-        shell: powershell
-        run: |
-          $b64 = $env:KUBECONFIG_B64
-          if ([string]::IsNullOrWhiteSpace($b64)) { throw "KUBECONFIG_B64 secret is empty" }
-          $out = Join-Path $env:RUNNER_TEMP 'kubeconfig'
-          [IO.File]::WriteAllBytes($out, [Convert]::FromBase64String($b64))
-          "KUBECONFIG=$out" | Out-File -FilePath $env:GITHUB_ENV -Encoding ASCII -Append
+      # - name: Install kubectl via choco
+      #   shell: powershell
+      #   run: choco install kubernetes-cli -y
 
-      - name: Verify cluster context
+      - name: Verify kubectl presence
         shell: powershell
         run: |
           kubectl version --client
-          kubectl config get-contexts || exit 1
-          # If you're on minikube, uncomment the next line:
-          # kubectl config use-context minikube
-          kubectl cluster-info
+          $PSVersionTable.PSVersion
 
-      - name: Deploy with retries and diagnostics
+      - name: Write kubeconfig from secret
         shell: powershell
         env:
-          KUBECONFIG: ${{ runner.temp }}\kubeconfig
-          NAMESPACE: default   # change if you use another namespace
-          DEPLOYMENT: wisecow  # change if your deployment name differs
+          KUBECONFIG_B64: ${{ secrets.KUBECONFIG_B64 }}
         run: |
-          $ErrorActionPreference = 'Stop'
+          $bytes = [Convert]::FromBase64String($env:KUBECONFIG_B64)
+          $out = Join-Path $env:RUNNER_TEMP "kubeconfig"
+          [IO.File]::WriteAllBytes($out, $bytes)
+          Write-Host "Kubeconfig written to $out"
+          # Make KUBECONFIG available to later steps in this job
+          echo "KUBECONFIG=$out" >> $env:GITHUB_ENV
 
-          function Invoke-WithRetry([scriptblock]$Block, [int]$Attempts = 3, [int]$DelaySec = 5) {
-            for ($i=1; $i -le $Attempts; $i++) {
-              try { & $Block; return } catch {
-                if ($i -eq $Attempts) { throw }
-                Start-Sleep -Seconds $DelaySec
-              }
-            }
-          }
+      - name: Debug cluster (one-time; remove later)
+        shell: powershell
+        run: |
+          kubectl cluster-info
+          kubectl get nodes -o wide
 
-          Write-Host "==> Applying manifests"
-          Invoke-WithRetry { kubectl apply -f k8s/cert-issuer.yaml }  # may be optional in minikube
-          Invoke-WithRetry { kubectl apply -f k8s/deployment.yaml -n $env:NAMESPACE }
-          Invoke-WithRetry { kubectl apply -f k8s/service.yaml     -n $env:NAMESPACE }
-          Invoke-WithRetry { kubectl apply -f k8s/ingress.yaml     -n $env:NAMESPACE }
-
-          Write-Host "==> Waiting for rollout"
-          try {
-            kubectl rollout status deployment/$env:DEPLOYMENT -n $env:NAMESPACE --timeout=180s
-            Write-Host "Deployment rolled out successfully."
-          } catch {
-            Write-Warning "Rollout did not complete in time. Gathering diagnostics..."
-            kubectl get deploy/$env:DEPLOYMENT -n $env:NAMESPACE -o yaml > $env:RUNNER_TEMP\deploy.yaml
-            kubectl get pods -n $env:NAMESPACE -o wide
-            kubectl describe deploy/$env:DEPLOYMENT -n $env:NAMESPACE || $true
-            kubectl describe pods -l app=$env:DEPLOYMENT -n $env:NAMESPACE || $true
-            # Show logs of the newest pod (if any)
-            $pod = (kubectl get pods -n $env:NAMESPACE -l app=$env:DEPLOYMENT -o name | Select-Object -First 1)
-            if ($pod) { kubectl logs $pod -n $env:NAMESPACE --tail=200 || $true }
-            throw "Rollout failed or timed out."
-          }
+      - name: Deploy manifests
+        shell: powershell
+        run: |
+          # If cert-manager CRDs aren't installed yet, ignore issuer apply failure
+          kubectl apply -f k8s/cert-issuer.yaml 2>$null || echo "Issuer apply skipped (CRDs missing?)"
+          kubectl apply -f k8s/deployment.yaml
+          kubectl apply -f k8s/service.yaml
+          kubectl apply -f k8s/ingress.yaml
+          kubectl rollout status deployment/wisecow --timeout=180s
 
