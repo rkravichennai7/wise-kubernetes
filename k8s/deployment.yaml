@@ -1,0 +1,38 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: wisecow
+  labels:
+    app: wisecow
+spec:
+  replicas: 2
+  selector:
+    matchLabels:
+      app: wisecow
+  template:
+    metadata:
+      labels:
+        app: wisecow
+    spec:
+      securityContext:
+        runAsNonRoot: true
+        runAsUser: 10001
+      containers:
+        - name: wisecow
+          image: rkravichennai7/wisecow:latest   # or rkravichennai7/wisecow:latest if Docker Hub
+          imagePullPolicy: IfNotPresent
+          ports:
+            - containerPort: 4499
+              name: http
+          readinessProbe:
+            httpGet:
+              path: /
+              port: 4499
+            initialDelaySeconds: 3
+            periodSeconds: 10
+          livenessProbe:
+            httpGet:
+              path: /
+              port: 4499
+            initialDelaySeconds: 5
+            periodSeconds: 20
