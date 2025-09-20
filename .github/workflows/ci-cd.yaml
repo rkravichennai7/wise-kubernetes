@@ -57,12 +57,10 @@ jobs:
           version: latest
 
       - name: Configure kubeconfig (from secret)
-        shell: pwsh
         run: |
-          $b64 = "${env:KUBECONFIG_B64}"
-          [IO.File]::WriteAllBytes("$env:RUNNER_TEMP\kubeconfig", [Convert]::FromBase64String($b64))
-        env:
-          KUBECONFIG_B64: ${{ secrets.KUBECONFIG_B64 }}
+          echo "${KUBECONFIG_B64}" | base64 -d > $RUNNER_TEMP/kubeconfig
+          echo "KUBECONFIG=$RUNNER_TEMP/kubeconfig" >> $GITHUB_ENV
+        shell: bash
 
       - name: Deploy manifests
         shell: pwsh
