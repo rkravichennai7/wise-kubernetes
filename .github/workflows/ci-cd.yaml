@@ -57,16 +57,12 @@ jobs:
           version: latest
 
       - name: Configure kubeconfig (from secret)
-        shell: powershell
+        shell: cmd
         run: |
-          $b64 = $env:KUBECONFIG_B64
-          $out = Join-Path $env:RUNNER_TEMP 'kubeconfig'
-          [System.IO.File]::WriteAllBytes($out, [System.Convert]::FromBase64String($b64))
-          "KUBECONFIG=$out" | Out-File -FilePath $env:GITHUB_ENV -Encoding ASCII -Append
+          echo %KUBECONFIG_B64%> "%RUNNER_TEMP%\kubeconfig.b64"
+          certutil -f -decode "%RUNNER_TEMP%\kubeconfig.b64" "%RUNNER_TEMP%\kubeconfig"
+          echo KUBECONFIG=%RUNNER_TEMP%\kubeconfig>>%GITHUB_ENV%
 
-      - name: Verify kubectl context
-        shell: pwsh
-        run: kubectl config get-contexts
 
 
       - name: Deploy manifests
