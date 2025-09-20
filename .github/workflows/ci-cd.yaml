@@ -67,7 +67,7 @@ jobs:
       - name: Deploy manifests
         shell: pwsh
         env:
-          KUBECONFIG: ${{ env:RUNNER_TEMP }}\kubeconfig
+          KUBECONFIG: ${{ runner.temp }}\kubeconfig
         run: |
           kubectl apply -f k8s/cert-issuer.yaml || exit 0
           kubectl apply -f k8s/deployment.yaml
