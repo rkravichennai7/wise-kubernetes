@@ -63,15 +63,20 @@ jobs:
           kubectl version --client
           $PSVersionTable.PSVersion
       - name: Ensure minikube is running and export kubeconfig
-        shell: pwsh
+        shell: powershell
         run: |
           # Start or ensure minikube is up (adapt driver/profile if needed)
-          minikube status || minikube start
-          # Ensure kubeconfig has the right, current port and certs for this machine
+          minikube status 2>$null || minikube start
+      
+          # Update kube context so kubectl points to the running port
           minikube -p minikube update-context
-          # On Windows, kubeconfig is typically at $env:USERPROFILE\.kube\config
+      
+          # Windows kubeconfig path
           $kc = Join-Path $env:USERPROFILE ".kube\config"
-          "KUBECONFIG=$kc" | Out-File -FilePath $env:GITHUB_ENV -Encoding utf8 -Append
+      
+          # Append to GITHUB_ENV (PowerShell 5 safe)
+          [System.IO.File]::AppendAllText($env:GITHUB_ENV, "KUBECONFIG=$kc`n")
+
       - name: Write kubeconfig from secret
         shell: powershell
         env:
