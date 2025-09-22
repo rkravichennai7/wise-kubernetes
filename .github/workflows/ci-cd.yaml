@@ -46,62 +46,73 @@ jobs:
 
   deploy:
     needs: build-and-push
-    runs-on: [self-hosted, windows, minikube]   # <-- use the exact labels you gave your runner
+    runs-on: [self-hosted, windows, minikube]   # match your runner labels exactly
     steps:
       - uses: actions/checkout@v4
-
-      # If kubectl isn't on this runner yet, uncomment ONE of the installers below
+  
+      # (Optional) Install kubectl if it's not already on the runner
       - name: Kubectl tool installer
-        uses: Azure/setup-kubectl@v4.0.0
-        with: # Version of kubectl
-          version: latest # default is latest
-          
-        
+        uses: Azure/setup-kubectl@v4
+        with:
+          version: latest
+  
       - name: Verify kubectl presence
         shell: powershell
         run: |
           kubectl version --client
           $PSVersionTable.PSVersion
+  
+      # ---- Minikube on Windows PowerShell (no bash operators) ----
       - name: Ensure minikube is running and export kubeconfig
         shell: powershell
         run: |
-          # Start or ensure minikube is up (adapt driver/profile if needed)
-          minikube status 2>$null || minikube start
-      
-          # Update kube context so kubectl points to the running port
+          # If Minikube isn't running, start it
+          $status = minikube status --format '{{.Host}}' 2>$null
+          if ($status -ne "Running") {
+            Write-Host "Minikube not running. Starting..."
+            minikube start
+          } else {
+            Write-Host "Minikube already running."
+          }
+  
+          # Make kubectl point to the current Minikube API server/port
           minikube -p minikube update-context
-      
-          # Windows kubeconfig path
+  
+          # On Windows, kubeconfig is here:
           $kc = Join-Path $env:USERPROFILE ".kube\config"
-      
-          # Append to GITHUB_ENV (PowerShell 5 safe)
+  
+          # Export for later steps in *this job*
           [System.IO.File]::AppendAllText($env:GITHUB_ENV, "KUBECONFIG=$kc`n")
-
-      - name: Write kubeconfig from secret
+          Write-Host "KUBECONFIG set to $kc"
+  
+      - name: Show kubeconfig context
         shell: powershell
         env:
-          KUBECONFIG_B64: ${{ secrets.KUBECONFIG_B64 }}
+          KUBECONFIG: ${{ env.KUBECONFIG }}
         run: |
-          $bytes = [Convert]::FromBase64String($env:KUBECONFIG_B64)
-          $out = Join-Path $env:RUNNER_TEMP "kubeconfig"
-          [IO.File]::WriteAllBytes($out, $bytes)
-          Write-Host "Kubeconfig written to $out"
-          # Make KUBECONFIG available to later steps in this job
-          echo "KUBECONFIG=$out" >> $env:GITHUB_ENV
-
+          kubectl config get-contexts
+          kubectl config current-context
+          kubectl config view --minify
+  
       - name: Debug cluster (one-time; remove later)
         shell: powershell
+        env:
+          KUBECONFIG: ${{ env.KUBECONFIG }}
         run: |
           kubectl cluster-info
           kubectl get nodes -o wide
-
+  
       - name: Deploy manifests
         shell: powershell
+        env:
+          KUBECONFIG: ${{ env.KUBECONFIG }}
         run: |
-          # If cert-manager CRDs aren't installed yet, ignore issuer apply failure
+          # If cert-manager CRDs aren't installed yet, ignore issuer failure
           kubectl apply -f k8s/cert-issuer.yaml 2>$null || echo "Issuer apply skipped (CRDs missing?)"
           kubectl apply -f k8s/deployment.yaml
           kubectl apply -f k8s/service.yaml
           kubectl apply -f k8s/ingress.yaml
           kubectl rollout status deployment/wisecow --timeout=180s
+  
+            kubectl rollout status deployment/wisecow --timeout=180s
 
